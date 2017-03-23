@@ -432,7 +432,18 @@ bool NandBin::InitNand( const QIcon &dirs, const QIcon &files )
     fstInited = false;
     memset( (void*)&fsts, 0, sizeof( fst_t ) * 0x17ff );
     fats.clear();
-    if ( !GetDumpType() || !GetNandType() || !GetKey() )
+    if ( !GetDumpType() ) {
+        qDebug() << "Failed to determine dump type";
+        return false;
+    }
+    if ( !GetNandType() ) {
+        qDebug() << "Failed to determine nand type";
+        return false;
+    }
+    if ( !GetKey() ) {
+        qDebug() << "Failed to load keys (otp.bin/keys.bin)";
+        return false;
+    }    
 
     loc_super = FindSuperblock();
     if( loc_super < 0 )
@@ -594,12 +605,15 @@ bool NandBin::GetKey( )
         int sl = otpPath.lastIndexOf( "/" );
         if( sl == -1 )
         {
+            sl = otpPath.lastIndexOf( "\\" );
+        }
+        if( sl == -1 )
+        {
             emit SendError( tr( "Error getting path of otp.bin" ) );
             return false;
         }
         otpPath.resize( sl + 1 );
         otpPath += "otp.bin";
-
         key = ReadOTPfile( otpPath, 0 );
         if ( key.isEmpty() ) {
             if ( nandType == NAND_VWII ) {
@@ -733,11 +747,12 @@ const QByteArray NandBin::ReadOTPfile( const QString &path, quint8 type )
     }
     else if( type == 1 ) // hmac
     {
-        if ( nandType == NAND_WIIU) {
+        if ( nandType == NAND_VWII) {
             f.seek( 0x44 );
         } else {
-            f.seek( 0x1e0 );
+            f.seek( 0x1E0 );
         }
+        retval = f.read( 20 );
     }
     f.close();
 
@@ -1274,7 +1289,7 @@ bool NandBin::WritePage( quint32 pageNo, const QByteArray &data )
     return false;
 #else
     //qDebug() << "NandBin::WritePage(" << hex << pageNo << ")";
-    if( (quint32)data.size() != GetPageSize() )
+    if( data.size() != GetPageSize() )
     {
         qWarning() << "data is wrong size" << hex << data.size();
         return false;
@@ -1286,6 +1301,37 @@ bool NandBin::WritePage( quint32 pageNo, const QByteArray &data )
         return false;
     }
     f.seek( (quint64)pageNo * (quint64)GetPageSize() );	//seek to the beginning of the page to write
+    //qDebug() << "writing page at:" << f.pos() << hex << (quint32)f.pos();
+    //hexdump(  data, 0, 0x20 );
+    return ( f.write( data ) == data.size() );
+#endif
+}
+
+bool NandBin::WritePageSpare( quint32 pageNo, const QByteArray &data )
+{
+#ifndef NAND_BIN_CAN_WRITE
+    Q_UNUSED( pageNo );
+    Q_UNUSED( data );
+    qWarning() << __FILE__ << "was built without write support";
+    return false;
+#else
+    if( dumpType == NAND_DUMP_NO_ECC )
+    {
+        return false;
+    }
+
+    if( (quint32)data.size() != 0x40 )
+    {
+        qWarning() << "data is wrong size" << hex << data.size();
+        return false;
+    }
+
+    if( f.size() < ( pageNo + 1 ) * GetPageSize() )
+    {
+        emit SendError( tr( "Tried to write page past size of nand.bin" ) );
+        return false;
+    }
+    f.seek( (quint64)pageNo * (quint64)GetPageSize() + 0x800 );	//seek to the spare data of the page
     //qDebug() << "writing page at:" << f.pos() << hex << (quint32)f.pos();
     //hexdump(  data, 0, 0x20 );
     return ( f.write( data ) == data.size() );
@@ -1815,6 +1861,34 @@ bool NandBin::CheckEcc( quint32 pageNo )
     return ( ecc == calc );
 }
 
+bool NandBin::FixEcc( quint32 pageNo )
+{
+    if( dumpType == NAND_DUMP_NO_ECC )
+        return false;
+
+    QByteArray whole = GetPage( pageNo, true );
+    if( whole.size() != 0x840 )
+        return false;
+
+    QByteArray data = whole.left( 0x800 );
+    bool used = false;			    //dont calculate ecc for unused pages
+    for( quint16 i = 0; i < 0x800; i++ )
+    {
+        if( data.at( i ) != '\xff' )
+        {
+            used = true;
+            break;
+        }
+    }
+    if( !used ) {
+        return WritePageSpare( pageNo, QByteArray( 0x40, 0xff ) );
+    }
+    QByteArray spareData = QByteArray( 0x30, 0x00 );
+    spareData[0] = 0xff; // good page
+    spareData += spare.CalcEcc( data );
+    return WritePageSpare( pageNo, spareData );
+}
+
 bool NandBin::CheckHmacData( quint16 entry )
 {
     if( entry > 0x17fe )
@@ -1899,6 +1973,81 @@ bool NandBin::CheckHmacData( quint16 entry )
 
 }
 
+bool NandBin::FixHmacData( quint16 entry )
+{
+    if( entry > 0x17fe )
+    {
+        qDebug() << "bad entry #" << hex << entry;
+        return false;
+    }
+
+    fst_t fst = fsts[ entry ];
+    if( ( fst.attr & 3 ) != 1 )
+    {
+        qDebug() << "bad attributes" << ( fst.attr & 3 );
+        return false;
+    }
+
+    if( !fst.size )
+        return true;
+
+    quint16 clCnt = ( RU( fst.size, 0x4000 ) / 0x4000 );
+    //qDebug() << FstName( fst ) << "is" << hex << fst.size << "bytes (" << clCnt << ") clusters";
+
+    quint16 fat = fst.sub;
+    QByteArray sp1;
+    QByteArray sp2;
+    QByteArray hmac;
+    //qDebug() << "fat" << hex << fat;
+    for( quint32 i = 0; i < clCnt; i++ )
+    {
+        if( fat > 0x7fff )
+        {
+            qDebug() << "fat is out of range" << hex << fat;
+            return false;
+        }
+        QByteArray cluster = GetCluster( fat );			//hmac is calculated with the decrypted cluster data
+        if( cluster.size() != 0x4000 )
+        {
+            qDebug() << "error reading cluster";
+            return false;
+        }
+        sp1 = GetPage( ( fat * 8 ) + 6, true );	//the spare data of these 2 pages hold the hmac data for the cluster
+        sp2 = GetPage( ( fat * 8 ) + 7, true );
+        if( sp1.isEmpty() || sp2.isEmpty() )
+        {
+            qDebug() << "error getting spare data";
+            return false;
+        }
+
+        sp1 = sp1.right( 0x40 );				//only keep the spare data and drop the data
+        sp2 = sp2.right( 0x40 );
+
+        hmac = spare.Get_hmac_data( cluster, fst.uid, (const unsigned char*)&fst.filename, entry, fst.x3, i );
+
+        if ( !WritePageSpare( ( fat * 8 ) + 6, sp1.left(1) + hmac + hmac.left( 0xc ) + sp1.right(0x40 - 1 - 0x20) ) )
+        {
+            qWarning() << "failed writing hmac(1)" << sp1.toHex() << hmac.toHex() << (sp1.left(1) + hmac + hmac.left( 0xc ) + sp1.right(0x40 - 1 - 0x20)).toHex();
+            goto error;
+        }
+        if ( !WritePageSpare( ( fat * 8 ) + 7, sp2.left(1) + hmac.right( 8 ) + sp2.right( 0x40 - 1 - 0x8 ) ) )
+        {
+            qWarning() << "failed writing hmac(2)";
+            goto error;
+        }
+        //qDebug() << "hmac ok for cluster" << i;
+        //data += cluster;
+        fat = GetFAT( fat );
+    }
+    return true;
+
+    error:
+    qWarning() << FstName( fst ) << "is" << hex << fst.size << "bytes (" << clCnt << ") clusters";
+    hexdump( hmac );
+    return false;
+
+}
+
 bool NandBin::CheckHmacMeta( quint16 clNo )
 {
     if( clNo < GetFirstSuperblockCluster() || clNo > 0x7ff0 || clNo % 0x10 )
@@ -1938,6 +2087,51 @@ bool NandBin::CheckHmacMeta( quint16 clNo )
     if( sp2.mid( 1, 8 ) != hmac.right( 8 ) )
     {
         qWarning() << "hmac bad (3)";
+        goto error;
+    }
+    return true;
+
+    error:
+    qWarning() << "supercluster" << hex << clNo;
+    hexdump( sp1 );
+    hexdump( sp2 );
+    hexdump( hmac );
+    return false;
+
+}
+
+bool NandBin::FixHmacMeta( quint16 clNo )
+{
+    if( clNo < GetFirstSuperblockCluster() || clNo > 0x7ff0 || clNo % 0x10 )
+        return false;
+
+    QByteArray data;
+    for( quint8 i = 0; i < 0x10; i++ )
+    {
+        data += GetCluster( ( clNo + i ), false );
+    }
+    QByteArray hmac = spare.Get_hmac_meta( data, clNo );
+    quint32 baseP = ( clNo + 15 ) * 8;
+    //qDebug() << "baseP" << hex << baseP << ( baseP + 6 ) << ( baseP + 7 );
+    QByteArray sp1 = GetPage( baseP + 6, true );		    //the spare data of these 2 pages hold the hmac data for the supercluster
+    QByteArray sp2 = GetPage( baseP + 7, true );
+    if( sp1.isEmpty() || sp2.isEmpty() )
+    {
+        qDebug() << "error getting spare data";
+        return false;
+    }
+
+    sp1 = sp1.right( 0x40 );					    //only keep the spare data and drop the data
+    sp2 = sp2.right( 0x40 );
+
+    if ( !WritePageSpare( baseP + 6, sp1.right(1) + hmac + hmac.left( 0xc ) + sp1.left(0x40 - 1 - 0x20) ) )
+    {
+        qWarning() << "failed writing hmac(1)";
+        goto error;
+    }
+    if ( !WritePageSpare( baseP + 7, sp2.right(1) + hmac.right( 8 ) + sp2.left( 0x40 - 1 - 0x8 ) ) )
+    {
+        qWarning() << "failed writing hmac(2)";
         goto error;
     }
     return true;

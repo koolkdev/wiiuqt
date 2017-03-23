@@ -140,13 +140,17 @@ public:
     // but at the same time, you probably dont need to overuse this.  ( no need to write metadata every time you make a single change )
     bool WriteMetaData();
 
-    //functions to verify spare data
+    //functions to verify and fix spare data
     bool CheckEcc( quint32 pageNo );
+    // warning: this clear the spare data (including the hmac)
+    bool FixEcc( quint32 pageNo );
     bool CheckHmacData( quint16 entry );
+    bool FixHmacData( quint16 entry );
 
     //verify hmac stuff for a given supercluster
     //expects 0x7f00 - 0x7ff0
     bool CheckHmacMeta( quint16 clNo );
+    bool FixHmacMeta( quint16 clNo );
 
     //wipe out all data within the nand FS, leaving only the root entry
     //preserve all bad/reserved clusters
@@ -230,6 +234,7 @@ private:
     bool WriteCluster( quint32 pageNo, const QByteArray &data, const QByteArray &hmac );
     bool WriteDecryptedCluster( quint32 pageNo, const QByteArray &data, fst_t fst, quint16 idx );
     bool WritePage( quint32 pageNo, const QByteArray &data );
+    bool WritePageSpare( quint32 pageNo, const QByteArray &data );
 
     quint16 CreateNode( const QString &name, quint32 uid, quint16 gid, quint8 attr, quint8 user_perm, quint8 group_perm, quint8 other_perm );
 
