@@ -17,41 +17,15 @@ QT += core gui
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
 SOURCES += main.cpp \
-    ../WiiQt/blocks0to7.cpp \
-    ../WiiQt/tiktmd.cpp \
+    ../WiiQt/blocks0to3.cpp \
     ../WiiQt/nandbin.cpp \
     ../WiiQt/tools.cpp \
     ../WiiQt/aes.c \
     ../WiiQt/sha1.c \
-    ../WiiQt/uidmap.cpp \
-    ../WiiQt/sharedcontentmap.cpp \
-    ../WiiQt/nandspare.cpp \
-    ../WiiQt/settingtxtdialog.cpp \
-    ../WiiQt/u8.cpp \
-    ../WiiQt/lz77.cpp \
-    ../WiiQt/ash.cpp
+    ../WiiQt/nandspare.cpp
 
 HEADERS += ../WiiQt/tiktmd.h \
     ../WiiQt/nandbin.h \
     ../WiiQt/tools.h \
-    ../WiiQt/blocks0to7.h \
-    ../WiiQt/uidmap.h \
-    ../WiiQt/sharedcontentmap.h \
-    ../WiiQt/nandspare.h \
-    ../WiiQt/settingtxtdialog.h \
-    ../WiiQt/u8.h \
-    ../WiiQt/lz77.h \
-    ../WiiQt/ash.h
-
-FORMS += \
-    ../WiiQt/settingtxtdialog.ui
-
-# create new svnrev.h
-unix {
-    system( chmod 755 ../tools/makesvnrev.sh )
-    system( ../tools/makesvnrev.sh )
-}
-
-win32 {
-    system( "..\\tools\\SubWCRev.exe" "." "..\\tools\\svnrev_template.h" ".\\svnrev.h" )
-}
+    ../WiiQt/blocks0to3.h \
+    ../WiiQt/nandspare.h

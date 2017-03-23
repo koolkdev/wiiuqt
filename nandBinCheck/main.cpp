@@ -1,32 +1,15 @@
 #include "../WiiQt/includes.h"
 #include "../WiiQt/nandbin.h"
-#include "../WiiQt/sharedcontentmap.h"
-#include "../WiiQt/uidmap.h"
 #include "../WiiQt/tools.h"
-#include "../WiiQt/settingtxtdialog.h"
-#include "../WiiQt/u8.h"
-#include "../WiiQt/keysbin.h"
 
 //yippie for global variables
 QStringList args;
 NandBin nand;
-SharedContentMap sharedM;
-UIDmap uidM;
-QList< quint64 > tids;
-QList< quint64 > validIoses;//dont put stubs in this list.
 QTreeWidgetItem *root;
 QList<quint16> fats;
 quint32 verbose = 0;
 bool tryToKeepGoing = false;
 bool color = true;
-bool calcRsa = false;
-QByteArray sysMenuResource;
-QByteArray sysMenuExe;
-quint64 sysMenuIos;
-
-QList<QByteArray>BadSharedItems;//remember bad shared items
-
-bool CheckTitleIntegrity( quint64 tid );
 
 #ifdef Q_WS_WIN
 #include <windows.h>
@@ -163,18 +146,7 @@ void Usage()
     qWarning() << "usage:" << QCoreApplication::arguments().at( 0 ) << "nand.bin" << "<other options>";
     qDebug() << "\nif no <other options> are given, it will default to \"-all -v -v\"";
     qDebug() << "\nOther options:";
-    qDebug() << "   -boot           shows information about boot 1 and 2";
-    qDebug() << "";
-    qDebug() << "   -fs             verify the filesystem is in tact";
-    qDebug() << "                   verifies presence of uid & content.map & checks the hashes in the content.map";
-    qDebug() << "                   check sha1 hashes for title private contents";
-    qDebug() << "                   check all titles with a ticket titles for required IOS, proper uid & gid";
-    qDebug() << "";
-    qDebug() << "   -settingtxt     check setting.txt itself and against system menu resources.  this must be combined with \"-fs\"";
-    qDebug() << "";
-    qDebug() << "   -uid            Look any titles in the uid.sys, check signatures and whatnot.  this must be combined with \"-fs\"";
-    qDebug() << "";
-    qDebug() << "   -rsa            Calculate and compare RSA signatures.  this must be combined with \"-fs\"";
+    qDebug() << "   -boot           verify boot1";
     qDebug() << "";
     qDebug() << "   -clInfo         shows free, used, and lost ( marked used, but dont belong to any file ) clusters";
     qDebug() << "";
@@ -262,6 +234,15 @@ QString PathFromItem( QTreeWidgetItem *item )
     }
     return ret;
 
+}
+
+void CheckBoot1()
+{
+    if ( nand.CheckBoot1() )
+        qDebug() << "Boot1 OK!";
+    else
+        qCritical() << "Boot1 check failed!";
+    
 }
 
 void CheckLostClusters()
@@ -418,142 +399,6 @@ void CheckHmac()
         qCritical() << sclBad;
 }
 
-void CheckSettingTxt()
-{
-    qDebug() << "Checking setting.txt stuff...";
-    QByteArray settingTxt = nand.GetData( "/title/00000001/00000002/data/setting.txt" );
-    if( settingTxt.isEmpty() )
-    {
-        Fail( "Error reading setting.txt" );
-        return;
-    }
-
-    settingTxt = SettingTxtDialog::LolCrypt( settingTxt );
-    QString area;
-    bool hArea = false;
-    bool hModel = false;
-    bool hDvd = false;
-    bool hMpch = false;
-    bool hCode = false;
-    bool hSer = false;
-    bool hVideo = false;
-    bool hGame = false;
-    bool shownSetting = false;
-    QString str( settingTxt );
-    str.replace( "\r\n", "\n" );//maybe not needed to do this in 2 steps, but there may be some reason the file only uses "\n", so do it this way to be safe
-    QStringList parts = str.split( "\n", QString::SkipEmptyParts );
-    foreach( const QString &part, parts )
-    {
-        if( part.startsWith( "AREA=" ) )
-        {
-            if( hArea ) goto error;
-            hArea = true;
-            area = part;
-            area.remove( 0, 5 );
-        }
-        else if( part.startsWith( "MODEL=" ) )
-        {
-            if( hModel ) goto error;
-            hModel = true;
-        }
-        else if( part.startsWith( "DVD=" ) )
-        {
-            if( hDvd ) goto error;
-            hDvd = true;
-        }
-        else if( part.startsWith( "MPCH=" ) )
-        {
-            if( hMpch ) goto error;
-            hMpch = true;
-        }
-        else if( part.startsWith( "CODE=" ) )
-        {
-            if( hCode ) goto error;
-            hCode = true;
-        }
-        else if( part.startsWith( "SERNO=" ) )
-        {
-            if( hSer ) goto error;
-            hSer = true;
-        }
-        else if( part.startsWith( "VIDEO=" ) )
-        {
-            if( hVideo ) goto error;
-            hVideo = true;
-        }
-        else if( part.startsWith( "GAME=" ) )
-        {
-            if( hGame ) goto error;
-            hGame = true;
-        }
-        else
-        {
-            qDebug() << "Extra stuff in the setting.txt.";
-            hexdump( settingTxt );
-            qDebug() << QString( settingTxt );
-            shownSetting = true;
-        }
-    }
-    //something is missing
-    if( !hArea || !hModel || !hDvd || !hMpch || !hCode || !hSer || !hVideo || !hGame )
-        goto error;
-
-    //check for opera brick,
-    //or in certain cases ( such as KOR area setting on the wrong system menu, a full brick presenting as green & purple garbage instead of the "press A" screen )
-    if( sysMenuResource.isEmpty() )
-    {
-        qCritical() << "Error getting the resource file for the system menu.\nCan\'t check it against setting.txt";
-    }
-    else
-    {
-        U8 u8( sysMenuResource );
-        QStringList entries = u8.Entries();
-        if( !u8.IsOK() || !entries.size() )
-        {
-            qCritical() << "Error parsing the resource file for the system menu.\nCan\'t check it against setting.txt";
-        }
-        else
-        {
-            QString sysMenuPath;
-            //these are all the possibilities i saw for AREA in libogc
-            if( area == "AUS" || area == "EUR" )																			//supported by 4.3e
-                sysMenuPath = "html/EU2/iplsetting.ash/EU/EU/ENG/index01.html";
-            else if( area == "USA" || area == "BRA" || area == "HKG" || area == "ASI" || area == "LTN" || area == "SAF" )	//supported by 4.3u
-                sysMenuPath = "html/US2/iplsetting.ash/FIX/US/ENG/index01.html";
-            else if( area == "JPN" || area == "TWN" || area == "ROC" )														//supported by 4.3j
-                sysMenuPath = "html/JP2/iplsetting.ash/JP/JP/JPN/index01.html";
-            else if( area == "KOR" )																						//supported by 4.3k
-                sysMenuPath = "html/KR2/iplsetting.ash/KR/KR/KOR/index01.html";
-            else
-                qDebug() << "unknown AREA setting";
-            if( !entries.contains( sysMenuPath ) )
-            {
-                qCritical() << sysMenuPath << "Was not found in the system menu resources, and is needed by the AREA setting" << area;
-                Fail( "This will likely result in a full/opera brick" );
-            }
-            else
-            {
-                if( verbose )
-                    qDebug() << "system menu resource matches setting.txt AREA setting.";
-            }
-        }
-    }
-    if( verbose )
-    {
-        shownSetting = true;
-        hexdump( settingTxt );
-        qDebug() << qPrintable( str );
-    }
-    return;
-error:
-    qCritical() << "Something is wrong with this setting.txt";
-    if( !shownSetting )
-    {
-        hexdump( settingTxt );
-        qDebug() << qPrintable( str );
-    }
-}
-
 int main( int argc, char *argv[] )
 {
     QCoreApplication a( argc, argv );
@@ -595,8 +440,11 @@ int main( int argc, char *argv[] )
     if( args.contains( "-continue", Qt::CaseInsensitive ) )
         tryToKeepGoing = true;
 
-    if( args.contains( "-rsa", Qt::CaseInsensitive ) || args.contains( "-all", Qt::CaseInsensitive ) )
-        calcRsa = true;
+    if( args.contains( "-boot", Qt::CaseInsensitive ) || args.contains( "-all", Qt::CaseInsensitive ) )
+    {
+        qDebug() << "checking boot1...";
+        CheckBoot1();
+    }
 
     if( args.contains( "-clInfo", Qt::CaseInsensitive ) || args.contains( "-all", Qt::CaseInsensitive ) )
     {
