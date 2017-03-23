@@ -4,6 +4,7 @@
 NandBin::NandBin( QObject * parent, const QString &path, nand_type_t type ) : QObject( parent )
 {
     dumpType = NAND_DUMP_INVALID;
+	// Will be overwrited by InitNand if called
     nandType = type;
     fatNames = false;
     fstInited = false;
@@ -31,7 +32,7 @@ bool NandBin::SetPath( const QString &path )
 {
     fstInited = false;
     nandPath = path;
-    bootBlocks = Blocks0to7();
+    //bootBlocks = Blocks0to7();
     if( f.isOpen() )
         f.close();
 
@@ -106,7 +107,7 @@ bool NandBin::CreateNew( const QString &path, const QByteArray &keys, const QByt
     nandPath = path;
     currentSuperCluster = GetFirstSuperblockCluster();
     superClusterVersion = 1;
-    type = 2;
+    dumpType = NAND_DUMP_BOOT_MII;
     fats.clear();
     memset( &fsts, 0, sizeof( fst_t ) * 0x17ff );
 
@@ -480,8 +481,8 @@ bool NandBin::InitNand( const QIcon &dirs, const QIcon &files )
         blocks << block;
     }
 
-    if( !bootBlocks.SetBlocks( blocks ) )
-        return false;
+    //if( !bootBlocks.SetBlocks( blocks ) )
+    //    return false;
 
     //ShowInfo();
     return true;
@@ -565,7 +566,7 @@ bool NandBin::GetNandType()
     }
 }
 
-const QList<Boot2Info> NandBin::Boot2Infos()
+/*const QList<Boot2Info> NandBin::Boot2Infos()
 {
     if( !bootBlocks.IsOk() )
         return QList<Boot2Info>();
@@ -579,7 +580,7 @@ quint8 NandBin::Boot1Version()
         return 0;
 
     return bootBlocks.Boot1Version();
-}
+}*/
 
 bool NandBin::GetKey( )
 {
