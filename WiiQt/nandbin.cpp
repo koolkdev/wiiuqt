@@ -32,7 +32,7 @@ bool NandBin::SetPath( const QString &path )
 {
     fstInited = false;
     nandPath = path;
-    //bootBlocks = Blocks0to7();
+    bootBlocks = Blocks0to3();
     if( f.isOpen() )
         f.close();
 
@@ -566,21 +566,13 @@ bool NandBin::GetNandType()
     }
 }
 
-/*const QList<Boot2Info> NandBin::Boot2Infos()
+bool NandBin::CheckBoot1()
 {
     if( !bootBlocks.IsOk() )
-        return QList<Boot2Info>();
+        return false;
 
-    return bootBlocks.Boot2Infos();
+    return bootBlocks.CheckBoot1();
 }
-
-quint8 NandBin::Boot1Version()
-{
-    if( !bootBlocks.IsOk() )
-        return 0;
-
-    return bootBlocks.Boot1Version();
-}*/
 
 bool NandBin::GetKey( )
 {

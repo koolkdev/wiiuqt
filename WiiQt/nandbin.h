@@ -2,7 +2,7 @@
 #define NANDBIN_H
 
 #include "includes.h"
-#include "blocks0to7.h"
+#include "blocks0to3.h"
 #include "nandspare.h"
 
 enum dump_type_t
@@ -117,8 +117,7 @@ public:
     void ShowLostClusters();
 
     const Blocks0to7 BootBlocks(){ return bootBlocks; }
-    const QList<Boot2Info> Boot2Infos();
-    quint8 Boot1Version();
+    bool CheckBoot1();
 
     const QByteArray GetPage( quint32 pageNo, bool withEcc = false );
 
@@ -220,8 +219,8 @@ private:
     QTreeWidgetItem *ItemFromPath( const QString &path );
     QTreeWidgetItem *FindItem( const QString &s, QTreeWidgetItem *parent );
 
-    //holds info about boot1 & 2
-    Blocks0to7 bootBlocks;
+    //holds info about boot1
+    Blocks0to3 bootBlocks;
 
     bool WriteCluster( quint32 pageNo, const QByteArray &data, const QByteArray &hmac );
     bool WriteDecryptedCluster( quint32 pageNo, const QByteArray &data, fst_t fst, quint16 idx );
