@@ -29,7 +29,7 @@ bool Blocks0to3::SetBlocks( const QList<QByteArray> &blocks )
 
 bool Blocks0to3::CheckBoot1()
 {
-    if( blocks.size() != 8 )
+    if( blocks.size() != 4 )
     {
         qWarning() << "Blocks0to3::CheckBoot1 -> not enough blocks" << blocks.size();
         return false;
@@ -42,11 +42,12 @@ bool Blocks0to3::CheckBoot1()
     Boot1Info boot1Info;
     QByteArray stuff = blocks.at( 0 );
     QBuffer b( &stuff );
-    b.read( &boot1Info, sizeof(boot1Info) );
+    b.open(QIODevice::ReadOnly);
+    b.read( (char*)&boot1Info, sizeof(boot1Info) );
     boot1Info.unknownSignatureRelated = qFromBigEndian(boot1Info.unknownSignatureRelated);
     boot1Info.zero = qFromBigEndian(boot1Info.zero);
-    boot1Info.rsaKeyIndex = qFromBigEndian(boot1Info.rsaKeyIndex);
     boot1Info.unknownType = qFromBigEndian(boot1Info.unknownType);
+    boot1Info.rsaKeyIndex = qFromBigEndian(boot1Info.rsaKeyIndex);
     boot1Info.boot1Size = qFromBigEndian(boot1Info.boot1Size);
     boot1Info.unknownNumber = qFromBigEndian(boot1Info.unknownNumber);
 
@@ -75,8 +76,8 @@ bool Blocks0to3::CheckBoot1()
     QByteArray boot1Data = b.read( boot1Info.boot1Size );
     QByteArray hash = GetSha1( boot1Data );
 
-    if ( hash != QByteArray::fromRawData(boot1Info.boot1Hash, 0x14) ) {
-        qWarning() << "Blocks0to3::CheckBoot1 -> Wrong hash" << hash.toHex() << QByteArray::fromRawData(boot1Info.boot1Hash, 0x14).toHex();
+    if ( hash != QByteArray::fromRawData( (const char*)boot1Info.boot1Hash, 0x14) ) {
+        qWarning() << "Blocks0to3::CheckBoot1 -> Wrong hash" << hash.toHex() << QByteArray::fromRawData( (const char*)boot1Info.boot1Hash, 0x14).toHex();
         return false;        
     }
 
