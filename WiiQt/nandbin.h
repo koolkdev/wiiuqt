@@ -5,6 +5,20 @@
 #include "blocks0to7.h"
 #include "nandspare.h"
 
+enum dump_type_t
+{
+    NAND_DUMP_INVALID=0,
+    NAND_DUMP_NO_ECC,
+    NAND_DUMP_ECC,
+    NAND_DUMP_BOOT_MII,
+};
+
+enum nand_type_t
+{
+    NAND_WII = 0,
+    NAND_WIIU,
+};
+
 struct fst_t
 {
     quint8 filename[ 0xc ];
@@ -30,7 +44,7 @@ class NandBin : public QObject
 
 public:
     //creates a NandBin object. if a path is given, it will call SetPath() on that path.  though you cant check the return value
-    NandBin( QObject * parent = 0, const QString &path = QString() );
+    NandBin( QObject * parent = 0, const QString &path = QString(), nand_type_t type = NAND_WIIU );
 
     //destroys this object, and all its used resources ( closes the nand.bin file and deletes the filetree )
     ~NandBin();
@@ -144,6 +158,7 @@ public:
     //get the keys.bin for this object
     const QByteArray Keys();
 
+    qint32 GetFirstSuperblockCluster();
 
 private:
     QByteArray key;
@@ -155,7 +170,12 @@ private:
     QString extractPath;
     QString nandPath;
     QFile f;
-    int type;
+    dump_type_t dumpType;
+    nand_type_t nandType;
+
+    static const qint32 PAGE_SIZE = 0x800;
+    static const qint32 SPARE_SIZE = 0x40;
+    static const quint16 CLUSTERS_COUNT = 0x8000;
 
     bool fatNames;
     QIcon groupIcon;
@@ -172,9 +192,14 @@ private:
     // uses ~64KiB
     QList<quint16>fats;
 
-    int GetDumpType( quint64 fileSize );
-    bool GetKey( int type );
+    bool GetDumpType();
+    bool GetNandType();
+    bool GetKey();
+
+    qint32 GetPageSize();
+    qint32 GetClusterSize();
     const QByteArray ReadKeyfile( const QString &path, quint8 type );//type 0 for nand key, type 1 for hmac
+    const QByteArray ReadOTPfile( const QString &path, quint8 type );//type 0 for nand key, type 1 for hmac
     qint32 FindSuperblock();
     quint16 GetFAT( quint16 fat_entry );
     fst_t GetFST( quint16 entry );

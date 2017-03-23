@@ -1,9 +1,10 @@
 #include "nandbin.h"
 #include "tools.h"
 
-NandBin::NandBin( QObject * parent, const QString &path ) : QObject( parent )
+NandBin::NandBin( QObject * parent, const QString &path, nand_type_t type ) : QObject( parent )
 {
-    type = -1;
+    dumpType = NAND_DUMP_INVALID;
+    nandType = type;
     fatNames = false;
     fstInited = false;
     root = NULL;
@@ -66,6 +67,12 @@ bool NandBin::CreateNew( const QString &path, const QByteArray &keys, const QByt
     qWarning() << __FILE__ << "was built without write support";
     return false;
 #else
+    if( nandType != NAND_WII )
+    {
+        qWarning() << "NandBin::CreateNew support only Wii currently";
+        return false;
+    }
+
     if( keys.size() != 0x400 || first8.size() != 0x108000 )
     {
         qWarning() << "NandBin::CreateNew -> bad sizes" << hex << keys.size() << first8.size();
@@ -97,7 +104,7 @@ bool NandBin::CreateNew( const QString &path, const QByteArray &keys, const QByt
 
     //setup variables
     nandPath = path;
-    currentSuperCluster = 0x7f00;
+    currentSuperCluster = GetFirstSuperblockCluster();
     superClusterVersion = 1;
     type = 2;
     fats.clear();
@@ -112,7 +119,7 @@ bool NandBin::CreateNew( const QString &path, const QByteArray &keys, const QByt
         fats << 0xfffc;
     }
     //mark all the "normal" blocks - free, or bad
-    for( quint16 i = 0x40; i < 0x7f00; i++ )
+    for( quint16 i = 0x40; i < currentSuperCluster; i++ )
     {
         if( badBlocks.contains( i / 8 ) )
             fats << 0xfffd;
@@ -121,7 +128,7 @@ bool NandBin::CreateNew( const QString &path, const QByteArray &keys, const QByt
 
     }
     //reserve the superclusters
-    for( quint16 i = 0x7f00; i < 0x8000; i++ )
+    for( quint16 i = GetFirstSuperblockCluster(); i < 0x8000; i++ )
     {
         fats << 0xfffc;
     }
@@ -166,6 +173,12 @@ bool NandBin::Format( bool secure )
     qWarning() << __FILE__ << "was built without write support";
     return false;
 #else
+    if( nandType != NAND_WII )
+    {
+        qWarning() << "NandBin::Format support only Wii currently";
+        return false;
+    }
+
     if( !f.isOpen() || fats.size() != 0x8000 )
     {
         qWarning() << "NandBin::Format -> error" << hex << fats.size() << f.isOpen();
@@ -174,7 +187,7 @@ bool NandBin::Format( bool secure )
 
     //mark any currently used clusters free
     QByteArray cluster( 0x4200, 0xff );//generic empty cluster
-    for( quint16 i = 0x40; i < 0x7f00; i++ )
+    for( quint16 i = 0x40; i < GetFirstSuperblockCluster(); i++ )
     {
         if( fats.at( i ) >= 0xf000 && fats.at( i ) != 0xfffe )	//preserve special marked ones
             continue;
@@ -421,21 +434,15 @@ bool NandBin::InitNand( const QIcon &dirs, const QIcon &files )
     fstInited = false;
     memset( (void*)&fsts, 0, sizeof( fst_t ) * 0x17ff );
     fats.clear();
-    type = GetDumpType( f.size() );
-    if( type < 0 || type > 3 )
-        return false;
-
-    //qDebug() << "dump type:" << type;
-    if( !GetKey( type ) )
-        return false;
+    if ( !GetDumpType() || !GetNandType() || !GetKey() )
 
     loc_super = FindSuperblock();
     if( loc_super < 0 )
         return false;
 
-    quint32 n_fatlen[] = { 0x010000, 0x010800, 0x010800 };
+    quint32 fatlen = GetClusterSize() * 4;
     loc_fat = loc_super;
-    loc_fst = loc_fat + 0x0C + n_fatlen[ type ];
+    loc_fst = loc_fat + 0x0C + fatlen;
 
     //cache all the entries
     for( quint16 i = 0; i < 0x17ff; i++ )
@@ -514,18 +521,48 @@ void NandBin::ShowLostClusters()
             "\nfree           " << frs.size();
 }
 
-int NandBin::GetDumpType( quint64 fileSize )
+bool NandBin::GetDumpType()
 {
-    quint64 sizes[] = { 536870912,    // type 0 | 536870912 == no ecc
-                        553648128,    // type 1 | 553648128 == ecc
-                        553649152 };  // type 2 | 553649152 == old bootmii
-    for( int i = 0; i < 3; i++ )
+    switch ( f.size() )
     {
-        if( sizes[ i ] == fileSize )
-            return i;
+        case PAGE_SIZE * 8 * CLUSTERS_COUNT:
+            dumpType = NAND_DUMP_NO_ECC;
+            return true;
+        case (PAGE_SIZE + SPARE_SIZE) * 8 * CLUSTERS_COUNT:
+            dumpType = NAND_DUMP_ECC;
+            return true;
+        case (PAGE_SIZE + SPARE_SIZE) * 8 * CLUSTERS_COUNT + 0x400:
+            dumpType = NAND_DUMP_BOOT_MII;
+            return true;
+        default:
+            emit SendError( tr( "Can't tell what type of nand dump this is" ) );
+            return false;
     }
-    emit SendError( tr( "Can't tell what type of nand dump this is" ) );
-    return -1;
+}
+
+bool NandBin::GetNandType()
+{
+    // Go to last superblock
+    f.seek(GetClusterSize() * 0x7FF0);
+
+    quint32 magic = 0;
+    // Read last superblock magic
+    f.read( (char*)&magic, 4 );
+    switch ( magic )
+    {
+        case 'SFFS':
+            nandType = NAND_WII;
+            return true;
+        case '!SFS':
+            if (dumpType == NAND_DUMP_BOOT_MII) {
+                emit SendError( tr( "BootMii WiiU dump is not supported" ) );
+            }
+            nandType = NAND_WIIU;
+            return true;
+        default:
+            emit SendError( tr( "Can't tell what type of nand this is" ) );
+            return false;
+    }
 }
 
 const QList<Boot2Info> NandBin::Boot2Infos()
@@ -544,50 +581,60 @@ quint8 NandBin::Boot1Version()
     return bootBlocks.Boot1Version();
 }
 
-bool NandBin::GetKey( int type )
+bool NandBin::GetKey( )
 {
     QByteArray hmacKey;
-    switch( type )
-    {
-    case 0:
-    case 1:
+    if ( dumpType == NAND_DUMP_BOOT_MII ) {
+        if( !f.isOpen() )
         {
-            QString keyPath = nandPath;
-            int sl = keyPath.lastIndexOf( "/" );
-            if( sl == -1 )
-            {
-                emit SendError( tr( "Error getting path of keys.bin" ) );
+            emit SendError( tr( "Tried to read keys from unopened file" ) );
+            return false;
+        }
+        f.seek( 0x21000144 );
+        hmacKey = f.read( 20 );
+
+        f.seek( 0x21000158 );
+        key = f.read( 16 );
+    } else {
+        QString otpPath = nandPath;
+        int sl = otpPath.lastIndexOf( "/" );
+        if( sl == -1 )
+        {
+            emit SendError( tr( "Error getting path of otp.bin" ) );
+            return false;
+        }
+        otpPath.resize( sl + 1 );
+        otpPath += "otp.bin";
+
+        key = ReadOTPfile( otpPath, 0 );
+        if ( key.isEmpty() ) {
+            if ( nandType == NAND_WII ) {
+                // Try to read keys.bin if it is Wii
+                QString keyPath = nandPath;
+                int sl = keyPath.lastIndexOf( "/" );
+                if( sl == -1 )
+                {
+                    emit SendError( tr( "Error getting path of keys.bin" ) );
+                    return false;
+                }
+                keyPath.resize( sl + 1 );
+                keyPath += "keys.bin";
+
+                key = ReadKeyfile( keyPath, 0 );
+                if( key.isEmpty() )
+                    return false;
+                hmacKey = ReadKeyfile( keyPath, 1 );
+                if( hmacKey.isEmpty() )
+                    return false;
+            } else {
                 return false;
             }
-            keyPath.resize( sl + 1 );
-            keyPath += "keys.bin";
-
-            key = ReadKeyfile( keyPath, 0 );
-            if( key.isEmpty() )
-                return false;
-            hmacKey = ReadKeyfile( keyPath, 1 );
-            if( hmacKey.isEmpty() )
-                return false;
         }
-        break;
-    case 2:
-        {
-            if( !f.isOpen() )
-            {
-                emit SendError( tr( "Tried to read keys from unopened file" ) );
-                return false;
-            }
-            f.seek( 0x21000144 );
-            hmacKey = f.read( 20 );
-
-            f.seek( 0x21000158 );
-            key = f.read( 16 );
-        }
-        break;
-    default:
-        emit SendError( tr( "Tried to read keys for unknown dump type" ) );
-        return false;
-        break;
+        
+        hmacKey = ReadOTPfile( otpPath, 1 );
+        if( hmacKey.isEmpty() )
+            return false;
+        
     }
     spare.SetHMacKey( hmacKey );//set the hmac key for calculating spare data
     //hexdump( hmacKey );
@@ -597,7 +644,7 @@ bool NandBin::GetKey( int type )
 const QByteArray NandBin::Keys()
 {
     QByteArray ret;
-    switch( type )
+    /*switch( type )
     {
     case 0:
     case 1:
@@ -632,7 +679,7 @@ const QByteArray NandBin::Keys()
         break;
     }
     if( ret.size() != 0x400 )
-        return QByteArray();
+        return QByteArray();*/
     return ret;
 }
 
@@ -651,12 +698,12 @@ const QByteArray NandBin::ReadKeyfile( const QString &path, quint8 type )
         emit SendError( tr( "keys.bin is too small!" ) );
         return retval;
     }
-    if( type == 0 )
+    if( type == 0 ) // key
     {
         f.seek( 0x158 );
         retval = f.read( 16 );
     }
-    else if( type == 1 )
+    else if( type == 1 ) // hmac
     {
         f.seek( 0x144 );
         retval = f.read( 20 );
@@ -666,31 +713,76 @@ const QByteArray NandBin::ReadKeyfile( const QString &path, quint8 type )
     return retval;
 }
 
+const QByteArray NandBin::ReadOTPfile( const QString &path, quint8 type )
+{
+    QByteArray retval;
+    QFile f( path );
+    if( !f.exists() || !f.open( QIODevice::ReadOnly ) )
+    {
+        emit SendError( tr( "Can't open %1!" ).arg( path ) );
+        return retval;
+    }
+    if( f.size() < 0x400 )
+    {
+        f.close();
+        emit SendError( tr( "otp.bin is too small!" ) );
+        return retval;
+    }
+    if( type == 0 ) // key
+    {
+        if (nandType == NAND_WII) {
+            f.seek( 0x58 );
+        } else {
+            f.seek( 0x170 );
+        }
+        retval = f.read( 16 );
+    }
+    else if( type == 1 ) // hmac
+    {
+        if ( nandType == NAND_WIIU) {
+            f.seek( 0x44 );
+        } else {
+            f.seek( 0x1e0 );
+        }
+    }
+    f.close();
+
+    return retval;
+}
+
+qint32 NandBin::GetPageSize() {
+    return dumpType == NAND_DUMP_NO_ECC ? PAGE_SIZE : PAGE_SIZE + SPARE_SIZE;
+}
+
+qint32 NandBin::GetClusterSize() {
+    return GetPageSize() * 8;
+}
+
+qint32 NandBin::GetFirstSuperblockCluster() {
+    return (nandType == NAND_WII) ? 0x7f00 : 0x7c00;
+}
+
 qint32 NandBin::FindSuperblock()
 {
-    if( type < 0 || type > 3 )
-    {
-        emit SendError( tr( "Tried to get superblock of unknown dump type" ) );
-        return -1;
-    }
     if( !f.isOpen() )
     {
         emit SendError( tr( "Tried to get superblock of unopened dump" ) );
         return -1;
     }
-    quint32 loc = 0, current = 0, magic = 0;
+    quint32 current = 0, magic = 0;
     superClusterVersion = 0;
-    quint32 n_start[] = { 0x1FC00000, 0x20BE0000, 0x20BE0000 },
-    n_end[] = { 0x20000000, 0x21000000, 0x21000000 },
-    n_len[] = { 0x40000, 0x42000, 0x42000 };
+
+    quint32 loc = GetFirstSuperblockCluster() * GetClusterSize();
+    quint32 end = CLUSTERS_COUNT * GetClusterSize();
+    quint32 len = GetClusterSize() * 0x10;
 
     quint8 rewind = 1;
-    for( loc = n_start[ type ], currentSuperCluster = 0x7f00; loc < n_end[ type ]; loc += n_len[ type ], currentSuperCluster += 0x10 )
+    for( currentSuperCluster = GetFirstSuperblockCluster(); loc < end; loc += len, currentSuperCluster += 0x10 )
     {
         f.seek( loc );
         //QByteArray sss = f.peek( 0x50 );
-        f.read( (char*)&magic, 4 );//no need to switch endian here
-        if( magic != 0x53464653 )
+        f.read( (char*)&magic, 4 );
+        if( magic != ((nandType == NAND_WII) ? 'SFFS' : '!SFS') )
         {
             qWarning() << "oops, this isnt a supercluster" << hex << loc << magic << currentSuperCluster;
             rewind++;
@@ -713,7 +805,7 @@ qint32 NandBin::FindSuperblock()
             rewind = 1;
             break;
         }
-        if( loc == n_end[ type ] )
+        if( loc == end )
         {
             rewind = 1;
         }
@@ -722,7 +814,7 @@ qint32 NandBin::FindSuperblock()
         return -1;
 
     currentSuperCluster -= ( 0x10 * rewind );
-    loc -= ( n_len[ type ] * rewind );
+    loc -= ( len * rewind );
 
     //qDebug() << "using superblock" << hex << superClusterVersion << currentSuperCluster << "page:" << ( loc / 0x840 );
     return loc;
@@ -744,11 +836,11 @@ fst_t NandBin::GetFST( quint16 entry )
         return fsts[ entry ];
     }
     // compensate for 64 bytes of ecc data every 64 fst entries
-    quint32 n_fst[] = { 0, 2, 2 };
-    int loc_entry = ( ( ( entry / 0x40 ) * n_fst[ type ] ) + entry ) * 0x20;
+    quint32 n_fst = (dumpType == NAND_DUMP_NO_ECC) ? 0 : 2;
+    int loc_entry = ( ( ( entry / 0x40 ) * n_fst ) + entry ) * 0x20;
     if( (quint32)f.size() < loc_fst + loc_entry + sizeof( fst_t ) )
     {
-        qDebug() << hex << (quint32)f.size() << loc_fst << loc_entry << type << n_fst[ type ];
+        qDebug() << hex << (quint32)f.size() << loc_fst << loc_entry << dumpType << n_fst;
         emit SendError( tr( "Tried to read fst_t beyond size of nand.bin" ) );
         fst.filename[ 0 ] = '\0';
         return fst;
@@ -760,7 +852,7 @@ fst_t NandBin::GetFST( quint16 entry )
     f.read( (char*)&fst.wtf, 1 );
     f.read( (char*)&fst.sub, 2 );
     f.read( (char*)&fst.sib, 2 );
-    if( type && ( entry + 1 ) % 64 == 0 )//bug in other nand.bin extracterizers.  the entry for every 64th fst item is inturrupeted by some spare shit
+    if( dumpType != NAND_DUMP_NO_ECC && ( entry + 1 ) % 64 == 0 )//bug in other nand.bin extracterizers.  the entry for every 64th fst item is inturrupeted by some spare shit
     {
         f.read( (char*)&fst.size, 2 );
         f.seek( f.pos() + 0x40 );
@@ -792,8 +884,8 @@ quint16 NandBin::GetFAT( quint16 fat_entry )
     fat_entry += 6;
 
     // location in fat of cluster chain
-    quint32 n_fat[] = { 0, 0x20, 0x20 };
-    int loc = loc_fat + ((((fat_entry / 0x400) * n_fat[type]) + fat_entry) * 2);
+    quint32 n_fat = (dumpType == NAND_DUMP_NO_ECC) ? 0 : 0x20;
+    int loc = loc_fat + ((((fat_entry / 0x400) * n_fat) + fat_entry) * 2);
 
     if( (quint32)f.size() < loc + sizeof( quint16 ) )
     {
@@ -811,26 +903,21 @@ quint16 NandBin::GetFAT( quint16 fat_entry )
 const QByteArray NandBin::GetPage( quint32 pageNo, bool withEcc )
 {
     //qDebug() << "NandBin::GetPage( " << hex << pageNo << ", " << withEcc << " )";
-    quint32 n_pagelen[] = { 0x800, 0x840, 0x840 };
-
-    if( f.size() < ( pageNo + 1 ) * n_pagelen[ type ] )
+    if( f.size() < ( pageNo + 1 ) * GetPageSize() )
     {
         emit SendError( tr( "Tried to read page past size of nand.bin" ) );
         return QByteArray();
     }
-    f.seek( pageNo * n_pagelen[ type ] );	//seek to the beginning of the page to read
+    f.seek( pageNo * GetPageSize() );	//seek to the beginning of the page to read
     //qDebug() << "reading page from" << hex << (quint32)f.pos();
-    QByteArray page = f.read( ( type && withEcc ) ? n_pagelen[ type ] : 0x800 );
+    QByteArray page = f.read( ( dumpType != NAND_DUMP_NO_ECC && withEcc ) ? GetPageSize() : 0x800 );
     return page;
 }
 
 const QByteArray NandBin::GetCluster( quint16 cluster_entry, bool decrypt )
 {
     //qDebug() << "NandBin::GetCluster" << hex << cluster_entry;
-    quint32 n_clusterlen[] = { 0x4000, 0x4200, 0x4200 };
-    quint32 n_pagelen[] = { 0x800, 0x840, 0x840 };
-
-    if( f.size() < ( cluster_entry * n_clusterlen[ type ] ) + ( 8 * n_pagelen[ type ] ) )
+    if( f.size() < ( cluster_entry *  GetClusterSize() ) + ( 8 * GetPageSize() ) )
     {
         emit SendError( tr( "Tried to read cluster past size of nand.bin" ) );
         return QByteArray();
@@ -840,7 +927,7 @@ const QByteArray NandBin::GetCluster( quint16 cluster_entry, bool decrypt )
 
     for( int i = 0; i < 8; i++ )
     {
-        f.seek( ( cluster_entry * n_clusterlen[ type ] ) + ( i * n_pagelen[ type ] ) );	//seek to the beginning of the page to read
+        f.seek( ( cluster_entry * GetClusterSize() ) + ( i * GetPageSize() ) );	//seek to the beginning of the page to read
         //qDebug() << "reading page from" << hex << (quint32)f.pos();
         //QByteArray page = f.read( n_pagelen[ type ] );					//read the page, with ecc
         QByteArray page = f.read( 0x800 );						//read the page, skip the ecc
@@ -1189,19 +1276,18 @@ bool NandBin::WritePage( quint32 pageNo, const QByteArray &data )
     return false;
 #else
     //qDebug() << "NandBin::WritePage(" << hex << pageNo << ")";
-    quint32 n_pagelen[] = { 0x800, 0x840, 0x840 };
-    if( (quint32)data.size() != n_pagelen[ type ] )
+    if( (quint32)data.size() != GetPageSize() )
     {
         qWarning() << "data is wrong size" << hex << data.size();
         return false;
     }
 
-    if( f.size() < ( pageNo + 1 ) * n_pagelen[ type ] )
+    if( f.size() < ( pageNo + 1 ) * GetPageSize() )
     {
         emit SendError( tr( "Tried to write page past size of nand.bin" ) );
         return false;
     }
-    f.seek( (quint64)pageNo * (quint64)n_pagelen[ type ] );	//seek to the beginning of the page to write
+    f.seek( (quint64)pageNo * (quint64)GetPageSize() );	//seek to the beginning of the page to write
     //qDebug() << "writing page at:" << f.pos() << hex << (quint32)f.pos();
     //hexdump(  data, 0, 0x20 );
     return ( f.write( data ) == data.size() );
@@ -1606,11 +1692,11 @@ bool NandBin::SetData( quint16 idx, const QByteArray &data )
 bool NandBin::WriteMetaData()
 {
     //make sure the currect cluster is sane
-    if( currentSuperCluster < 0x7f00 || currentSuperCluster > 0x7ff0 || currentSuperCluster % 16 || fats.size() != 0x8000 )
+    if( currentSuperCluster < GetFirstSuperblockCluster() || currentSuperCluster > 0x7ff0 || currentSuperCluster % 16 || fats.size() != 0x8000 )
         return false;
     quint16 nextSuperCluster = currentSuperCluster + 0x10;
     if( nextSuperCluster > 0x7ff0 )
-        nextSuperCluster = 0x7f00;
+        nextSuperCluster = GetFirstSuperblockCluster();
 
     quint32 nextClusterVersion = superClusterVersion + 1;
     QByteArray scl( 0x4000 * 16, '\0' );		    //this will hold all the data
@@ -1620,7 +1706,11 @@ bool NandBin::WriteMetaData()
     quint32 tmp;
     quint16 t;
 
-    b.write( "SFFS" );				    //magic word
+    if ( nandType == NAND_WII ) {
+        b.write( "SFFS" );				    //magic word
+    } else {
+        b.write( "SFS!" );				    //magic word        
+    }
     tmp = qFromBigEndian( nextClusterVersion );
     b.write( (const char*)&tmp, 4 );		    //version
     tmp = qFromBigEndian( (quint32)0 );
@@ -1703,7 +1793,7 @@ bool NandBin::WriteMetaData()
 
 bool NandBin::CheckEcc( quint32 pageNo )
 {
-    if( !type )
+    if( dumpType == NAND_DUMP_NO_ECC )
         return false;
 
     QByteArray whole = GetPage( pageNo, true );
@@ -1813,7 +1903,7 @@ bool NandBin::CheckHmacData( quint16 entry )
 
 bool NandBin::CheckHmacMeta( quint16 clNo )
 {
-    if( clNo < 0x7f00 || clNo > 0x7ff0 || clNo % 0x10 )
+    if( clNo < GetFirstSuperblockCluster() || clNo > 0x7ff0 || clNo % 0x10 )
         return false;
 
     QByteArray data;
