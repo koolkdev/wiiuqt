@@ -242,24 +242,24 @@ Boot2Info Blocks0to7::CheckHashes( const Boot2Info &info )
     switch( res )
     {
     default:
-    case ERROR_SIG_TYPE:
-    case ERROR_SUB_TYPE:
-    case ERROR_RSA_TYPE_UNKNOWN:
-    case ERROR_CERT_NOT_FOUND:
+    case TIKTMD_ERROR_SIG_TYPE:
+    case TIKTMD_ERROR_SUB_TYPE:
+    case TIKTMD_ERROR_RSA_TYPE_UNKNOWN:
+    case TIKTMD_ERROR_CERT_NOT_FOUND:
         ret.state = BOOT_2_ERROR;
         qWarning() << "check_cert_chain( tikD ):" << res;
         return ret;
         break;
-    case ERROR_RSA_TYPE_MISMATCH:
-    case ERROR_RSA_HASH:
+    case TIKTMD_ERROR_RSA_TYPE_MISMATCH:
+    case TIKTMD_ERROR_RSA_HASH:
         ret.state = BOOT_2_BAD_SIGNATURE;
         //qWarning() << "check_cert_chain( tikD ):" << res;
         return ret;
         break;
-    case ERROR_RSA_FAKESIGNED:
+    case TIKTMD_ERROR_RSA_FAKESIGNED:
         ret.state |= BOOT_2_TIK_FAKESIGNED;
         break;
-    case ERROR_SUCCESS:
+    case TIKTMD_ERROR_SUCCESS:
         ret.state |= BOOT_2_TIK_SIG_OK;
         break;
     }
@@ -267,21 +267,21 @@ Boot2Info Blocks0to7::CheckHashes( const Boot2Info &info )
     switch( res )
     {
     default:
-    case ERROR_SIG_TYPE:
-    case ERROR_SUB_TYPE:
-    case ERROR_RSA_TYPE_UNKNOWN:
-    case ERROR_CERT_NOT_FOUND:
+    case TIKTMD_ERROR_SIG_TYPE:
+    case TIKTMD_ERROR_SUB_TYPE:
+    case TIKTMD_ERROR_RSA_TYPE_UNKNOWN:
+    case TIKTMD_ERROR_CERT_NOT_FOUND:
         ret.state = BOOT_2_ERROR;
         //qWarning() << "check_cert_chain( tikD ):" << res;
         return ret;
         break;
-    case ERROR_RSA_TYPE_MISMATCH:
-    case ERROR_RSA_HASH:
+    case TIKTMD_ERROR_RSA_TYPE_MISMATCH:
+    case TIKTMD_ERROR_RSA_HASH:
         ret.state = BOOT_2_BAD_SIGNATURE;
         //qWarning() << "check_cert_chain( tikD ):" << res;
         return ret;
         break;
-    case ERROR_RSA_FAKESIGNED:
+    case TIKTMD_ERROR_RSA_FAKESIGNED:
         {
             ret.state |= BOOT_2_TMD_FAKESIGNED;
             if( tmdD.contains( "BM1.1" ) )
@@ -292,7 +292,7 @@ Boot2Info Blocks0to7::CheckHashes( const Boot2Info &info )
                 ret.version = BOOTMII_UNK;
         }
         break;
-    case ERROR_SUCCESS:
+    case TIKTMD_ERROR_SUCCESS:
         {
             ret.state |= BOOT_2_TMD_SIG_OK;
             ret.version = t.Version();

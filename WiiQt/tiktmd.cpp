@@ -476,7 +476,7 @@ static int get_sig_len( const quint8 *sig )
     case 2:
         return 0x80;
     }
-    return -ERROR_SIG_TYPE;
+    return -TIKTMD_ERROR_SIG_TYPE;
 }
 
 static int get_sub_len( const quint8 *sub )
@@ -489,7 +489,7 @@ static int get_sub_len( const quint8 *sub )
     case 1: return 0x1c0;
     case 2: return 0x100;
     }
-    return -ERROR_SUB_TYPE;
+    return -TIKTMD_ERROR_SUB_TYPE;
 }
 
 static int check_rsa( const QByteArray &h, const quint8 *sig, const quint8 *key, const quint32 n )
@@ -512,11 +512,11 @@ static int check_rsa( const QByteArray &h, const quint8 *sig, const quint8 *key,
         return 0;
 
     if( strncmp( (char*)h.constData(), (char*) x + n - 20, 20 ) == 0 )
-        return ERROR_RSA_FAKESIGNED;
+        return TIKTMD_ERROR_RSA_FAKESIGNED;
 
 	qDebug() << "Decrypted signature hash:" << qPrintable( QString( QByteArray( (const char*)&x[ n-20 ], 20 ).toHex() ) );
 	qDebug() << "               SHA1 hash:" << qPrintable( QString( h.toHex() ) );
-    return ERROR_RSA_HASH;
+    return TIKTMD_ERROR_RSA_HASH;
 }
 
 static int check_hash( const QByteArray &h, const quint8 *sig, const quint8 *key )
@@ -524,11 +524,11 @@ static int check_hash( const QByteArray &h, const quint8 *sig, const quint8 *key
     quint32 type;
     type = BE32( sig ) - 0x10000;
     if( (qint32)type != BE32( key + 0x40 ) )
-        return ERROR_RSA_TYPE_MISMATCH;
+        return TIKTMD_ERROR_RSA_TYPE_MISMATCH;
 
     if( type == 1 )
         return check_rsa( h, sig + 4, key + 0x88, 0x100 );
-    return ERROR_RSA_TYPE_UNKNOWN;
+    return TIKTMD_ERROR_RSA_TYPE_UNKNOWN;
 }
 
 static const quint8* find_cert_in_chain( const quint8 *sub, const quint8 *cert, const quint32 cert_len, int *err )
@@ -548,7 +548,7 @@ static const quint8* find_cert_in_chain( const quint8 *sub, const quint8 *cert, 
         child = (char*)sub;
     }
 
-    *err = -ERROR_CERT_NOT_FOUND;
+    *err = -TIKTMD_ERROR_CERT_NOT_FOUND;
 
     for( p = cert; p < cert + cert_len; p += sig_len + sub_len )
     {
@@ -589,7 +589,7 @@ int check_cert_chain( const QByteArray &data )
     sub = (const quint8*)( data.data() + sig_len );
     sub_len = data.size() - sig_len;
     if( sub_len <= 0 )
-        return ERROR_SUB_TYPE;
+        return TIKTMD_ERROR_SUB_TYPE;
 
     for( ; ; )
     {
@@ -599,7 +599,7 @@ int check_cert_chain( const QByteArray &data )
             key = root_dat;
             h = GetSha1( QByteArray( (const char*)sub, sub_len ) );
             if( BE32( sig ) != 0x10000 )
-                return ERROR_SIG_TYPE;
+                return TIKTMD_ERROR_SIG_TYPE;
             return check_rsa( h, sig + 4, key, 0x200 );
         }
 
@@ -614,7 +614,7 @@ int check_cert_chain( const QByteArray &data )
         h = GetSha1( QByteArray( (const char*)sub, sub_len ) );
         ret = check_hash( h, sig, key );
         // remove this if statement if you don't want to check the whole chain
-        if( ret != ERROR_SUCCESS )
+        if( ret != TIKTMD_ERROR_SUCCESS )
             return ret;
         sig = key_cert;
         sig_len = get_sig_len( sig );
