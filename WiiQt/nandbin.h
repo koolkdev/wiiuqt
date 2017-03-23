@@ -15,7 +15,7 @@ enum dump_type_t
 
 enum nand_type_t
 {
-    NAND_WII = 0,
+    NAND_VWII = 0,
     NAND_WIIU,
 };
 
@@ -49,11 +49,11 @@ public:
     //destroys this object, and all its used resources ( closes the nand.bin file and deletes the filetree )
     ~NandBin();
 
-    //create a "blank" nand at the given path, with spare data and keeys.bin appended to the end
-    //keys should be a 0x400 byte array containing a keys.bin from bootmii
-    //first8 should be a bytearray containing 0x108000 bytes - the first 8 blocks of the nand with spare data
-    //badBlocks is a list of blocks to be marked bad, in the range 8 - 4079
-    bool CreateNew( const QString &path, const QByteArray &keys, const QByteArray &first8, const QList<quint16> &badBlocks = QList<quint16>() );
+    //create a "blank" nand at the given path with spare data
+    //bootBlocks should be a bytearray containing 0x84000 bytes - the first 4 blocks of the nand with spare data
+    //badBlocks is a list of blocks to be marked bad, in the range 4/8 - 4079
+    bool CreateNewVWii( const QString &path, const QList<quint16> &badBlocks);
+    bool CreateNewWiiU( const QString &path, const QByteArray &bootBlocks, const QList<quint16> &badBlocks );
 
     //sets the path of this object to path.  returns false if it cannot open an already existing file
     //keys.bin should be in this same path if they are to be used
@@ -116,8 +116,10 @@ public:
     //use the above function to search and display lost clusters
     void ShowLostClusters();
 
-    const Blocks0to7 BootBlocks(){ return bootBlocks; }
+    const Blocks0to3 BootBlocks(){ return bootBlocks; }
     bool CheckBoot1();
+
+    nand_type_t NandType() { return nandType; }
 
     const QByteArray GetPage( quint32 pageNo, bool withEcc = false );
 
@@ -191,12 +193,15 @@ private:
     // uses ~64KiB
     QList<quint16>fats;
 
+    bool CreateNew( const QString &path, const QByteArray &first8, const QList<quint16> &badBlocks = QList<quint16>() );
+
     bool GetDumpType();
     bool GetNandType();
     bool GetKey();
 
     qint32 GetPageSize();
     qint32 GetClusterSize();
+    quint16 GetReservedClustersCount();
     const QByteArray ReadKeyfile( const QString &path, quint8 type );//type 0 for nand key, type 1 for hmac
     const QByteArray ReadOTPfile( const QString &path, quint8 type );//type 0 for nand key, type 1 for hmac
     qint32 FindSuperblock();

@@ -4,7 +4,7 @@
 NandBin::NandBin( QObject * parent, const QString &path, nand_type_t type ) : QObject( parent )
 {
     dumpType = NAND_DUMP_INVALID;
-	// Will be overwrited by InitNand if called
+	// Will be overwrited by InitNand/CreateNew
     nandType = type;
     fatNames = false;
     fstInited = false;
@@ -58,30 +58,40 @@ const QString NandBin::FilePath()
     return QFileInfo( f ).absoluteFilePath();
 }
 
-bool NandBin::CreateNew( const QString &path, const QByteArray &keys, const QByteArray &first8, const QList<quint16> &badBlocks )
+bool NandBin::CreateNewVWii( const QString &path, const QList<quint16> &badBlocks) {
+    nandType = NAND_WIIU;
+    return CreateNew( path, QByteArray( GetReservedClustersCount() * 0x4200, 0xff ), badBlocks );
+}
+
+bool NandBin::CreateNewWiiU( const QString &path, const QByteArray &bootBlocks, const QList<quint16> &badBlocks ) {
+    nandType = NAND_WIIU;
+    return CreateNew( path, bootBlocks, badBlocks );
+}
+
+bool NandBin::CreateNew( const QString &path, const QByteArray &bootBlocks, const QList<quint16> &badBlocks )
 {
 #ifndef NAND_BIN_CAN_WRITE
     Q_UNUSED( path );
-    Q_UNUSED( keys );
-    Q_UNUSED( first8 );
+    Q_UNUSED( bootBlocks );
     Q_UNUSED( badBlocks );
     qWarning() << __FILE__ << "was built without write support";
     return false;
 #else
-    if( nandType != NAND_WII )
+    dumpType = NAND_DUMP_ECC;
+    if( bootBlocks.size() != GetReservedClustersCount() * GetClusterSize() )
     {
-        qWarning() << "NandBin::CreateNew support only Wii currently";
-        return false;
-    }
-
-    if( keys.size() != 0x400 || first8.size() != 0x108000 )
-    {
-        qWarning() << "NandBin::CreateNew -> bad sizes" << hex << keys.size() << first8.size();
+        qWarning() << "NandBin::CreateNew -> unexepcted bootBlocks size" << bootBlocks.size();
         return false;
     }
 
     if( f.isOpen() )
         f.close();
+    
+    if( !GetKey() )
+    {
+        qWarning() << "NandBin::CreateNew -> failed to load keys";
+        return false;
+    }
 
     //create the new file, write the first 8 blocks, fill it with 0xff, and write the keys.bin at the end
     f.setFileName( path );
@@ -90,14 +100,12 @@ bool NandBin::CreateNew( const QString &path, const QByteArray &keys, const QByt
         qWarning() << "NandBin::CreateNew -> can't create file" << path;
         return false;
     }
-
-    f.write( first8 );
-    QByteArray block( 0x4200, 0xff );//generic empty cluster
-    for( quint16 i = 0; i < 0x7fc0; i++ )
+    f.write( bootBlocks );
+    QByteArray block( GetClusterSize(), 0xff );//generic empty cluster
+    for( quint16 i = GetReservedClustersCount(); i < 0x8000; i++ )
         f.write( block );
 
-    f.write( keys );
-    if( f.pos() != 0x21000400 )//no room left on the drive?
+    if( f.pos() != 0x21000000 )//no room left on the drive?
     {
         qWarning() << "NandBin::CreateNew -> dump size is wrong" << (quint32)f.pos();
         return false;
@@ -107,20 +115,19 @@ bool NandBin::CreateNew( const QString &path, const QByteArray &keys, const QByt
     nandPath = path;
     currentSuperCluster = GetFirstSuperblockCluster();
     superClusterVersion = 1;
-    dumpType = NAND_DUMP_BOOT_MII;
     fats.clear();
     memset( &fsts, 0, sizeof( fst_t ) * 0x17ff );
 
     for( quint16 i = 0; i < 0x17ff; i++ )
         fsts[ i ].fst_pos = i;
 
-    //reserve blocks 0 - 7
-    for( quint16 i = 0; i < 0x40; i++ )
+    //reserve boot blocks
+    for( quint16 i = 0; i < GetReservedClustersCount(); i++ )
     {
         fats << 0xfffc;
     }
     //mark all the "normal" blocks - free, or bad
-    for( quint16 i = 0x40; i < currentSuperCluster; i++ )
+    for( quint16 i = GetReservedClustersCount(); i < currentSuperCluster; i++ )
     {
         if( badBlocks.contains( i / 8 ) )
             fats << 0xfffd;
@@ -141,11 +148,6 @@ bool NandBin::CreateNew( const QString &path, const QByteArray &keys, const QByt
     fsts[ 0 ].sub = 0xffff;
 
     fstInited = true;
-
-    //set keys
-    QByteArray hmacKey = keys.mid( 0x144, 0x14 );
-    spare.SetHMacKey( hmacKey );//set the hmac key for calculating spare data
-    key = keys.mid( 0x158, 0x10 );
 
     //write the metada to each of the superblocks
     for( quint8 i = 0; i < 0x10; i++ )
@@ -174,11 +176,6 @@ bool NandBin::Format( bool secure )
     qWarning() << __FILE__ << "was built without write support";
     return false;
 #else
-    if( nandType != NAND_WII )
-    {
-        qWarning() << "NandBin::Format support only Wii currently";
-        return false;
-    }
 
     if( !f.isOpen() || fats.size() != 0x8000 )
     {
@@ -188,7 +185,7 @@ bool NandBin::Format( bool secure )
 
     //mark any currently used clusters free
     QByteArray cluster( 0x4200, 0xff );//generic empty cluster
-    for( quint16 i = 0x40; i < GetFirstSuperblockCluster(); i++ )
+    for( quint16 i = GetReservedClustersCount(); i < GetFirstSuperblockCluster(); i++ )
     {
         if( fats.at( i ) >= 0xf000 && fats.at( i ) != 0xfffe )	//preserve special marked ones
             continue;
@@ -464,25 +461,29 @@ bool NandBin::InitNand( const QIcon &dirs, const QIcon &files )
     root = new QTreeWidgetItem( QStringList() << nandPath );
     AddChildren( root, 0 );
 
-    //checkout the blocks for boot1&2
-    QList<QByteArray>blocks;
-    for( quint16 i = 0; i < 8; i++ )
-    {
-        QByteArray block;
-        for( quint16 j = 0; j < 8; j++ )
-        {
-            block += GetCluster( ( i * 8 ) + j, false );
-        }
-        if( block.size() != 0x4000 * 8 )
-        {
-            qDebug() << "wrong block size" << i;
-            return false;
-        }
-        blocks << block;
-    }
 
-    //if( !bootBlocks.SetBlocks( blocks ) )
-    //    return false;
+    // vWii don't have boot blocks... it is just 0x40 clusters of 0xff...
+    if ( nandType == NAND_WIIU ) {
+        //checkout the blocks for boot1
+        QList<QByteArray>blocks;
+        for( quint16 i = 0; i < 4; i++ )
+        {
+            QByteArray block;
+            for( quint16 j = 0; j < 8; j++ )
+            {
+                block += GetCluster( ( i * 8 ) + j, false );
+            }
+            if( block.size() != 0x4000 * 8 )
+            {
+                qDebug() << "wrong block size" << i;
+                return false;
+            }
+            blocks << block;
+        }
+
+        if( !bootBlocks.SetBlocks( blocks ) )
+            return false;
+    }
 
     //ShowInfo();
     return true;
@@ -552,7 +553,7 @@ bool NandBin::GetNandType()
     switch ( magic )
     {
         case 'SFFS':
-            nandType = NAND_WII;
+            nandType = NAND_VWII;
             return true;
         case '!SFS':
             if (dumpType == NAND_DUMP_BOOT_MII) {
@@ -601,7 +602,7 @@ bool NandBin::GetKey( )
 
         key = ReadOTPfile( otpPath, 0 );
         if ( key.isEmpty() ) {
-            if ( nandType == NAND_WII ) {
+            if ( nandType == NAND_VWII ) {
                 // Try to read keys.bin if it is Wii
                 QString keyPath = nandPath;
                 int sl = keyPath.lastIndexOf( "/" );
@@ -723,7 +724,7 @@ const QByteArray NandBin::ReadOTPfile( const QString &path, quint8 type )
     }
     if( type == 0 ) // key
     {
-        if (nandType == NAND_WII) {
+        if (nandType == NAND_VWII) {
             f.seek( 0x58 );
         } else {
             f.seek( 0x170 );
@@ -752,7 +753,11 @@ qint32 NandBin::GetClusterSize() {
 }
 
 qint32 NandBin::GetFirstSuperblockCluster() {
-    return (nandType == NAND_WII) ? 0x7f00 : 0x7c00;
+    return (nandType == NAND_VWII) ? 0x7f00 : 0x7c00;
+}
+
+quint16 NandBin::GetReservedClustersCount() {
+    return (nandType == NAND_VWII) ? 0x40 : 0x20;    
 }
 
 qint32 NandBin::FindSuperblock()
@@ -775,7 +780,7 @@ qint32 NandBin::FindSuperblock()
         f.seek( loc );
         //QByteArray sss = f.peek( 0x50 );
         f.read( (char*)&magic, 4 );
-        if( magic != ((nandType == NAND_WII) ? 'SFFS' : '!SFS') )
+        if( magic != ((nandType == NAND_VWII) ? 'SFFS' : '!SFS') )
         {
             qWarning() << "oops, this isnt a supercluster" << hex << loc << magic << currentSuperCluster;
             rewind++;
@@ -1699,7 +1704,7 @@ bool NandBin::WriteMetaData()
     quint32 tmp;
     quint16 t;
 
-    if ( nandType == NAND_WII ) {
+    if ( nandType == NAND_VWII ) {
         b.write( "SFFS" );				    //magic word
     } else {
         b.write( "SFS!" );				    //magic word        
