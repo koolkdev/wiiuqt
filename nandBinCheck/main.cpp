@@ -1,6 +1,6 @@
-#include "../WiiQt/includes.h"
-#include "../WiiQt/nandbin.h"
-#include "../WiiQt/tools.h"
+#include "../WiiUQt/includes.h"
+#include "../WiiUQt/nandbin.h"
+#include "../WiiUQt/tools.h"
 
 //yippie for global variables
 QStringList args;

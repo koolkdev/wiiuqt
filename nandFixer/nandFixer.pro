@@ -18,16 +18,15 @@ QT += core gui
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
 SOURCES += main.cpp \
-    ../WiiQt/blocks0to1.cpp \
-    ../WiiQt/nandbin.cpp \
-    ../WiiQt/tools.cpp \
-    ../WiiQt/aes.c \
-    ../WiiQt/sha1.c \
-    ../WiiQt/nandspare.cpp
+    ../WiiUQt/blocks0to1.cpp \
+    ../WiiUQt/nandbin.cpp \
+    ../WiiUQt/tools.cpp \
+    ../WiiUQt/aes.c \
+    ../WiiUQt/sha1.c \
+    ../WiiUQt/nandspare.cpp
 
-HEADERS += ../WiiQt/tiktmd.h \
-    ../WiiQt/nandbin.h \
-    ../WiiQt/tools.h \
-    ../WiiQt/blocks0to1.h \
-    ../WiiQt/nandspare.h
+HEADERS += ../WiiUQt/nandbin.h \
+    ../WiiUQt/tools.h \
+    ../WiiUQt/blocks0to1.h \
+    ../WiiUQt/nandspare.h
 
