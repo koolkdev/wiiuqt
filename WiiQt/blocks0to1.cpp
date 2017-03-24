@@ -29,7 +29,7 @@ bool Blocks0to1::SetBlocks( const QList<QByteArray> &blocks )
 
 bool Blocks0to1::CheckBoot1()
 {
-    if( blocks.size() != 4 )
+    if( blocks.size() != 2 )
     {
         qWarning() << "Blocks0to1::CheckBoot1 -> not enough blocks" << blocks.size();
         return false;
