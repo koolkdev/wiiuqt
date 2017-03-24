@@ -588,7 +588,7 @@ bool NandBin::CheckBoot1()
 
 QString NandBin::FindFile( const QString & name ) {
     // Search in the directory of the nand first
-    QFileInfo f = QFileInfo(QFileInfo(nandPath).absolutePath() + name);
+    QFileInfo f = QFileInfo(QFileInfo(nandPath).absolutePath() +  QDir::separator() + name);
     if (f.exists())
         return f.absoluteFilePath();
     // Try in current directory
