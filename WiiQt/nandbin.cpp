@@ -477,7 +477,7 @@ bool NandBin::InitNand( const QIcon &dirs, const QIcon &files )
     if ( nandType == NAND_WIIU ) {
         //checkout the blocks for boot1
         QList<QByteArray>blocks;
-        for( quint16 i = 0; i < 4; i++ )
+        for( quint16 i = 0; i < 2; i++ )
         {
             QByteArray block;
             for( quint16 j = 0; j < 8; j++ )
