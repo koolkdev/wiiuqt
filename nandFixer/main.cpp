@@ -74,14 +74,9 @@ QString PathFromItem( QTreeWidgetItem *item )
 
 void FixEcc()
 {
-    quint32 checked = 0;
-    fats = nand.GetFats();
     for( quint16 i = 0; i < 0x8000; i++ )
     {
-        if( fats.at( i ) == 0xfffd || fats.at( i ) == 0xfffe ) //|| fats.at( i ) == 0xffff )
-            continue;
-
-        for( quint8 j = 0; j < 8; j++, checked += 8 )
+        for( quint8 j = 0; j < 8; j++ )
         {
             quint32 page = ( i * 8 ) + j;
             if( !nand.FixEcc( page ) )
@@ -90,7 +85,6 @@ void FixEcc()
             }
         }
     }
-    qDebug() << "Fixed ECC of" << checked << "pages.";
 }
 
 void SetUpTree()
