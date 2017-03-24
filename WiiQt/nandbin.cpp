@@ -586,6 +586,19 @@ bool NandBin::CheckBoot1()
     return bootBlocks.CheckBoot1();
 }
 
+QString NandBin::FindFile( const QString & name ) {
+    // Search in the directory of the nand first
+    QFileInfo f = QFileInfo(QFileInfo(nandPath).absolutePath() + name);
+    if (f.exists())
+        return f.absoluteFilePath();
+    // Try in current directory
+    f = QFileInfo(name);
+    if (f.exists())
+        return f.absoluteFilePath();
+    // Not found
+    return QString();
+}
+
 bool NandBin::GetKey( )
 {
     QByteArray hmacKey;
@@ -601,33 +614,11 @@ bool NandBin::GetKey( )
         f.seek( 0x21000158 );
         key = f.read( 16 );
     } else {
-        QString otpPath = nandPath;
-        int sl = otpPath.lastIndexOf( "/" );
-        if( sl == -1 )
-        {
-            sl = otpPath.lastIndexOf( "\\" );
-        }
-        if( sl == -1 )
-        {
-            emit SendError( tr( "Error getting path of otp.bin" ) );
-            return false;
-        }
-        otpPath.resize( sl + 1 );
-        otpPath += "otp.bin";
-        key = ReadOTPfile( otpPath, 0 );
-        if ( key.isEmpty() ) {
+        QString otpPath = FindFile("otp.bin");
+        if ( otpPath.isEmpty() ) {
             if ( nandType == NAND_VWII ) {
                 // Try to read keys.bin if it is Wii
-                QString keyPath = nandPath;
-                int sl = keyPath.lastIndexOf( "/" );
-                if( sl == -1 )
-                {
-                    emit SendError( tr( "Error getting path of keys.bin" ) );
-                    return false;
-                }
-                keyPath.resize( sl + 1 );
-                keyPath += "keys.bin";
-
+                QString keyPath = FindFile("keys.bin");
                 key = ReadKeyfile( keyPath, 0 );
                 if( key.isEmpty() )
                     return false;
@@ -638,7 +629,9 @@ bool NandBin::GetKey( )
                 return false;
             }
         }
-        
+        key = ReadOTPfile( otpPath, 0 );
+        if( key.isEmpty() )
+            return false;        
         hmacKey = ReadOTPfile( otpPath, 1 );
         if( hmacKey.isEmpty() )
             return false;

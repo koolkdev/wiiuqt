@@ -203,6 +203,7 @@ private:
     bool GetNandType();
     bool GetKey();
 
+    QString FindFile( const QString & name );
     qint32 GetPageSize();
     qint32 GetClusterSize();
     quint16 GetReservedClustersCount();
