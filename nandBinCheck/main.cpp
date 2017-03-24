@@ -437,6 +437,11 @@ int main( int argc, char *argv[] )
 
     verbose = args.count( "-v" );
 
+    if ( nand.NandType() == NAND_WIIU )
+        qDebug() << "NAND Type: SLC (WiiU)";
+    else
+        qDebug() << "NAND Type: SLCCMPT (vWii)";
+
     if( args.contains( "-continue", Qt::CaseInsensitive ) )
         tryToKeepGoing = true;
 
