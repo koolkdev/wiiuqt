@@ -2,7 +2,7 @@
 
 mkdir -p bin
 
-for app in nandBinCheck nandFixer
+for app in nandBinCheck nandFixer nandCbhcRemover
 do
     cd $app
     qmake
