@@ -32,7 +32,7 @@ bool NandBin::SetPath( const QString &path )
 {
     fstInited = false;
     nandPath = path;
-    bootBlocks = Blocks0to3();
+    bootBlocks = Blocks0to1();
     if( f.isOpen() )
         f.close();
 
@@ -765,7 +765,7 @@ qint32 NandBin::GetFirstSuperblockCluster() {
 }
 
 quint16 NandBin::GetReservedClustersCount() {
-    return (nandType == NAND_VWII) ? 0x40 : 0x20;    
+    return (nandType == NAND_VWII) ? 0x40 : 0x10;    
 }
 
 qint32 NandBin::FindSuperblock()

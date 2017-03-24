@@ -1,5 +1,5 @@
-#ifndef BLOCKS0TO3_H
-#define BLOCKS0TO3_H
+#ifndef BLOCKS0TO1_H
+#define BLOCKS0TO1_H
 
 #include "includes.h"
 
@@ -20,10 +20,10 @@ struct Boot1Info
 } __attribute__((packed));
 
 
-class Blocks0to3
+class Blocks0to1
 {
 public:
-    Blocks0to3( const QList<QByteArray> &blocks = QList<QByteArray>() );
+    Blocks0to1( const QList<QByteArray> &blocks = QList<QByteArray>() );
     bool SetBlocks( const QList<QByteArray> &blocks );
     bool IsOk(){ return _ok; }
 
@@ -35,4 +35,4 @@ private:
     QList<QByteArray>blocks;
 };
 
-#endif // BLOCKS0TO3_H
+#endif // BLOCKS0TO1_H
