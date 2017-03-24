@@ -442,8 +442,12 @@ int main( int argc, char *argv[] )
 
     if( args.contains( "-boot", Qt::CaseInsensitive ) || args.contains( "-all", Qt::CaseInsensitive ) )
     {
-        qDebug() << "checking boot1...";
-        CheckBoot1();
+        if ( nand.NandType() == NAND_WIIU ) {
+            qDebug() << "checking boot1...";
+            CheckBoot1();
+        } else {
+            qDebug() << "vWii - not checking boot";
+        }
     }
 
     if( args.contains( "-clInfo", Qt::CaseInsensitive ) || args.contains( "-all", Qt::CaseInsensitive ) )
