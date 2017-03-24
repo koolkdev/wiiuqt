@@ -119,6 +119,7 @@ public:
     const Blocks0to1 BootBlocks(){ return bootBlocks; }
     bool CheckBoot1();
 
+    dump_type_t DumpType() { return dumpType; }
     nand_type_t NandType() { return nandType; }
 
     const QByteArray GetPage( quint32 pageNo, bool withEcc = false );
