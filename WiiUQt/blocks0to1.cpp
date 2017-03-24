@@ -80,6 +80,7 @@ bool Blocks0to1::CheckBoot1()
         qWarning() << "Blocks0to1::CheckBoot1 -> Wrong hash" << hash.toHex() << QByteArray::fromRawData( (const char*)boot1Info.boot1Hash, 0x14).toHex();
         return false;        
     }
+    qWarning() << "Boot1 hash:" << QByteArray::fromRawData( (const char*)boot1Info.boot1Hash, 0x14).toHex();
 
     return true;
 }
