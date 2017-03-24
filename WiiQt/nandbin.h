@@ -50,8 +50,8 @@ public:
     ~NandBin();
 
     //create a "blank" nand at the given path with spare data
-    //bootBlocks should be a bytearray containing 0x84000 bytes - the first 4 blocks of the nand with spare data
-    //badBlocks is a list of blocks to be marked bad, in the range 4/8 - 4079
+    //bootBlocks should be a bytearray containing 0x42000 bytes - the first 16 clusters of the nand with spare data
+    //badBlocks is a list of blocks to be marked bad, in the range 2/8 - 4079
     bool CreateNewVWii( const QString &path, const QList<quint16> &badBlocks);
     bool CreateNewWiiU( const QString &path, const QByteArray &bootBlocks, const QList<quint16> &badBlocks );
 
@@ -197,7 +197,7 @@ private:
     // uses ~64KiB
     QList<quint16>fats;
 
-    bool CreateNew( const QString &path, const QByteArray &first8, const QList<quint16> &badBlocks = QList<quint16>() );
+    bool CreateNew( const QString &path, const QByteArray &bootBlocks, const QList<quint16> &badBlocks = QList<quint16>() );
 
     bool GetDumpType();
     bool GetNandType();
